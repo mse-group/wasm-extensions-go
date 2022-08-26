@@ -19,13 +19,13 @@ TinyGo version: >= 0.25.0
 block_urls:
 - "test"
 _rules_:
-# Matching by route name takes effect
+# matching by route name takes effect
 - _match_route_:
   - route-a
   - route-b
   block_bodys:
   - "hello world"
-# Matching by domain takes effect
+# matching by domain takes effect
 - _match_domain_:
   - "*.example.com"
   - test.com
