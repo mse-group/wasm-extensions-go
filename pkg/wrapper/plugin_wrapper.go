@@ -78,10 +78,6 @@ func parseEmptyPluginConfig[PluginConfig any](gjson.Result, *PluginConfig, LogWr
 	return nil
 }
 
-func onDefaultHttpRequestHeaders[PluginConfig any](contextID uint32, config PluginConfig, needBody *bool, log LogWrapper) types.Action {
-	return types.ActionContinue
-}
-
 func NewCommonVmCtx[PluginConfig any](pluginName string, setFuncs ...SetPluginFunc[PluginConfig]) *CommonVmCtx[PluginConfig] {
 	ctx := &CommonVmCtx[PluginConfig]{
 		pluginName: pluginName,
@@ -95,9 +91,6 @@ func NewCommonVmCtx[PluginConfig any](pluginName string, setFuncs ...SetPluginFu
 			panic("the `parseConfig` is missing in NewCommonVmCtx's arguments")
 		}
 		ctx.parseConfig = parseEmptyPluginConfig[PluginConfig]
-	}
-	if ctx.onHttpRequestHeaders == nil {
-		ctx.onHttpRequestHeaders = onDefaultHttpRequestHeaders[PluginConfig]
 	}
 	return ctx
 }
@@ -159,6 +152,7 @@ func (ctx *CommonPluginCtx[PluginConfig]) NewHttpContext(contextID uint32) types
 type CommonHttpCtx[PluginConfig any] struct {
 	types.DefaultHttpContext
 	plugin           *CommonPluginCtx[PluginConfig]
+	config           *PluginConfig
 	needRequestBody  bool
 	needResponseBody bool
 	requestBodySize  int
@@ -167,16 +161,26 @@ type CommonHttpCtx[PluginConfig any] struct {
 }
 
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
+	config, err := ctx.plugin.GetMatchConfig()
+	if err != nil {
+		ctx.plugin.log.Errorf("get match config failed, err:%v", err)
+		return types.ActionContinue
+	}
+	if config == nil {
+		return types.ActionContinue
+	}
+	ctx.config = config
 	if ctx.plugin.vm.onHttpRequestHeaders == nil {
 		return types.ActionContinue
 	}
-	return ctx.plugin.Process(func(config PluginConfig) types.Action {
-		return ctx.plugin.vm.onHttpRequestHeaders(ctx.contextID, config,
-			&ctx.needRequestBody, ctx.plugin.log)
-	})
+	return ctx.plugin.vm.onHttpRequestHeaders(ctx.contextID, *config,
+		&ctx.needRequestBody, ctx.plugin.log)
 }
 
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
+	if ctx.config == nil {
+		return types.ActionContinue
+	}
 	if ctx.plugin.vm.onHttpRequestBody == nil {
 		return types.ActionContinue
 	}
@@ -192,22 +196,24 @@ func (ctx *CommonHttpCtx[PluginConfig]) OnHttpRequestBody(bodySize int, endOfStr
 		ctx.plugin.log.Warnf("get request body failed: %v", err)
 		return types.ActionContinue
 	}
-	return ctx.plugin.Process(func(config PluginConfig) types.Action {
-		return ctx.plugin.vm.onHttpRequestBody(ctx.contextID, config, body, ctx.plugin.log)
-	})
+	return ctx.plugin.vm.onHttpRequestBody(ctx.contextID, *ctx.config, body, ctx.plugin.log)
 }
 
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpResponseHeaders(numHeaders int, endOfStream bool) types.Action {
+	if ctx.config == nil {
+		return types.ActionContinue
+	}
 	if ctx.plugin.vm.onHttpResponseHeaders == nil {
 		return types.ActionContinue
 	}
-	return ctx.plugin.Process(func(config PluginConfig) types.Action {
-		return ctx.plugin.vm.onHttpResponseHeaders(ctx.contextID, config,
-			&ctx.needResponseBody, ctx.plugin.log)
-	})
+	return ctx.plugin.vm.onHttpResponseHeaders(ctx.contextID, *ctx.config,
+		&ctx.needResponseBody, ctx.plugin.log)
 }
 
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpResponseBody(bodySize int, endOfStream bool) types.Action {
+	if ctx.config == nil {
+		return types.ActionContinue
+	}
 	if ctx.plugin.vm.onHttpResponseBody == nil {
 		return types.ActionContinue
 	}
@@ -223,7 +229,5 @@ func (ctx *CommonHttpCtx[PluginConfig]) OnHttpResponseBody(bodySize int, endOfSt
 		ctx.plugin.log.Warnf("get response body failed: %v", err)
 		return types.ActionContinue
 	}
-	return ctx.plugin.Process(func(config PluginConfig) types.Action {
-		return ctx.plugin.vm.onHttpResponseBody(ctx.contextID, config, body, ctx.plugin.log)
-	})
+	return ctx.plugin.vm.onHttpResponseBody(ctx.contextID, *ctx.config, body, ctx.plugin.log)
 }
