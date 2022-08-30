@@ -59,10 +59,14 @@ type RuleConfig[PluginConfig any] struct {
 type RuleMatcher[PluginConfig any] struct {
 	ruleConfig      []RuleConfig[PluginConfig]
 	globalConfig    PluginConfig
+	cached          *PluginConfig
 	hasGlobalConfig bool
 }
 
-func (m RuleMatcher[PluginConfig]) Process(do func(PluginConfig) types.Action) types.Action {
+func (m *RuleMatcher[PluginConfig]) Process(do func(PluginConfig) types.Action) types.Action {
+	if m.cached != nil {
+		return do(*m.cached)
+	}
 	config, err := m.getMatchConfig()
 	if err != nil {
 		proxywasm.LogErrorf("get match config failed, err:%v", err)
@@ -71,6 +75,7 @@ func (m RuleMatcher[PluginConfig]) Process(do func(PluginConfig) types.Action) t
 	if config == nil {
 		return types.ActionContinue
 	}
+	m.cached = config
 	return do(*config)
 }
 

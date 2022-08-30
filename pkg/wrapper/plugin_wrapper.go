@@ -78,6 +78,10 @@ func parseEmptyPluginConfig[PluginConfig any](gjson.Result, *PluginConfig, LogWr
 	return nil
 }
 
+func onDefaultHttpRequestHeaders[PluginConfig any](contextID uint32, config PluginConfig, needBody *bool, log LogWrapper) types.Action {
+	return types.ActionContinue
+}
+
 func NewCommonVmCtx[PluginConfig any](pluginName string, setFuncs ...SetPluginFunc[PluginConfig]) *CommonVmCtx[PluginConfig] {
 	ctx := &CommonVmCtx[PluginConfig]{
 		pluginName: pluginName,
@@ -91,6 +95,9 @@ func NewCommonVmCtx[PluginConfig any](pluginName string, setFuncs ...SetPluginFu
 			panic("the `parseConfig` is missing in NewCommonVmCtx's arguments")
 		}
 		ctx.parseConfig = parseEmptyPluginConfig[PluginConfig]
+	}
+	if ctx.onHttpRequestHeaders == nil {
+		ctx.onHttpRequestHeaders = onDefaultHttpRequestHeaders[PluginConfig]
 	}
 	return ctx
 }
