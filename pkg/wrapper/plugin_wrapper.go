@@ -31,6 +31,7 @@ type onHttpBodyFunc[PluginConfig any] func(contextID uint32, config PluginConfig
 type CommonVmCtx[PluginConfig any] struct {
 	types.DefaultVMContext
 	pluginName            string
+	log                   LogWrapper
 	parseConfig           ParseConfigFunc[PluginConfig]
 	onHttpRequestHeaders  onHttpHeadersFunc[PluginConfig]
 	onHttpRequestBody     onHttpBodyFunc[PluginConfig]
@@ -81,6 +82,7 @@ func parseEmptyPluginConfig[PluginConfig any](gjson.Result, *PluginConfig, LogWr
 func NewCommonVmCtx[PluginConfig any](pluginName string, setFuncs ...SetPluginFunc[PluginConfig]) *CommonVmCtx[PluginConfig] {
 	ctx := &CommonVmCtx[PluginConfig]{
 		pluginName: pluginName,
+		log:        LogWrapper{pluginName},
 	}
 	for _, set := range setFuncs {
 		set(ctx)
@@ -88,7 +90,9 @@ func NewCommonVmCtx[PluginConfig any](pluginName string, setFuncs ...SetPluginFu
 	if ctx.parseConfig == nil {
 		var config PluginConfig
 		if unsafe.Sizeof(config) != 0 {
-			panic("the `parseConfig` is missing in NewCommonVmCtx's arguments")
+			msg := "the `parseConfig` is missing in NewCommonVmCtx's arguments"
+			ctx.log.Critical(msg)
+			panic(msg)
 		}
 		ctx.parseConfig = parseEmptyPluginConfig[PluginConfig]
 	}
@@ -97,39 +101,37 @@ func NewCommonVmCtx[PluginConfig any](pluginName string, setFuncs ...SetPluginFu
 
 func (ctx *CommonVmCtx[PluginConfig]) NewPluginContext(uint32) types.PluginContext {
 	return &CommonPluginCtx[PluginConfig]{
-		vm:  ctx,
-		log: LogWrapper{ctx.pluginName},
+		vm: ctx,
 	}
 }
 
 type CommonPluginCtx[PluginConfig any] struct {
 	types.DefaultPluginContext
 	matcher.RuleMatcher[PluginConfig]
-	vm  *CommonVmCtx[PluginConfig]
-	log LogWrapper
+	vm *CommonVmCtx[PluginConfig]
 }
 
 func (ctx *CommonPluginCtx[PluginConfig]) OnPluginStart(int) types.OnPluginStartStatus {
 	data, err := proxywasm.GetPluginConfiguration()
 	if err != nil && err != types.ErrorStatusNotFound {
-		ctx.log.Criticalf("error reading plugin configuration: %v", err)
+		ctx.vm.log.Criticalf("error reading plugin configuration: %v", err)
 		return types.OnPluginStartStatusFailed
 	}
 	if len(data) == 0 {
-		ctx.log.Warn("need config")
+		ctx.vm.log.Warn("need config")
 		return types.OnPluginStartStatusFailed
 	}
 	if !gjson.ValidBytes(data) {
-		ctx.log.Warnf("the plugin configuration is not a valid json: %s", string(data))
+		ctx.vm.log.Warnf("the plugin configuration is not a valid json: %s", string(data))
 		return types.OnPluginStartStatusFailed
 
 	}
 	jsonData := gjson.ParseBytes(data)
 	err = ctx.ParseRuleConfig(jsonData, func(js gjson.Result, cfg *PluginConfig) error {
-		return ctx.vm.parseConfig(js, cfg, ctx.log)
+		return ctx.vm.parseConfig(js, cfg, ctx.vm.log)
 	})
 	if err != nil {
-		ctx.log.Warnf("parse rule config failed: %v", err)
+		ctx.vm.log.Warnf("parse rule config failed: %v", err)
 		return types.OnPluginStartStatusFailed
 	}
 	return types.OnPluginStartStatusOK
@@ -163,7 +165,7 @@ type CommonHttpCtx[PluginConfig any] struct {
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpRequestHeaders(numHeaders int, endOfStream bool) types.Action {
 	config, err := ctx.plugin.GetMatchConfig()
 	if err != nil {
-		ctx.plugin.log.Errorf("get match config failed, err:%v", err)
+		ctx.plugin.vm.log.Errorf("get match config failed, err:%v", err)
 		return types.ActionContinue
 	}
 	if config == nil {
@@ -174,7 +176,7 @@ func (ctx *CommonHttpCtx[PluginConfig]) OnHttpRequestHeaders(numHeaders int, end
 		return types.ActionContinue
 	}
 	return ctx.plugin.vm.onHttpRequestHeaders(ctx.contextID, *config,
-		&ctx.needRequestBody, ctx.plugin.log)
+		&ctx.needRequestBody, ctx.plugin.vm.log)
 }
 
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpRequestBody(bodySize int, endOfStream bool) types.Action {
@@ -193,10 +195,10 @@ func (ctx *CommonHttpCtx[PluginConfig]) OnHttpRequestBody(bodySize int, endOfStr
 	}
 	body, err := proxywasm.GetHttpRequestBody(0, ctx.requestBodySize)
 	if err != nil {
-		ctx.plugin.log.Warnf("get request body failed: %v", err)
+		ctx.plugin.vm.log.Warnf("get request body failed: %v", err)
 		return types.ActionContinue
 	}
-	return ctx.plugin.vm.onHttpRequestBody(ctx.contextID, *ctx.config, body, ctx.plugin.log)
+	return ctx.plugin.vm.onHttpRequestBody(ctx.contextID, *ctx.config, body, ctx.plugin.vm.log)
 }
 
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpResponseHeaders(numHeaders int, endOfStream bool) types.Action {
@@ -207,7 +209,7 @@ func (ctx *CommonHttpCtx[PluginConfig]) OnHttpResponseHeaders(numHeaders int, en
 		return types.ActionContinue
 	}
 	return ctx.plugin.vm.onHttpResponseHeaders(ctx.contextID, *ctx.config,
-		&ctx.needResponseBody, ctx.plugin.log)
+		&ctx.needResponseBody, ctx.plugin.vm.log)
 }
 
 func (ctx *CommonHttpCtx[PluginConfig]) OnHttpResponseBody(bodySize int, endOfStream bool) types.Action {
@@ -226,8 +228,8 @@ func (ctx *CommonHttpCtx[PluginConfig]) OnHttpResponseBody(bodySize int, endOfSt
 	}
 	body, err := proxywasm.GetHttpResponseBody(0, ctx.responseBodySize)
 	if err != nil {
-		ctx.plugin.log.Warnf("get response body failed: %v", err)
+		ctx.plugin.vm.log.Warnf("get response body failed: %v", err)
 		return types.ActionContinue
 	}
-	return ctx.plugin.vm.onHttpResponseBody(ctx.contextID, *ctx.config, body, ctx.plugin.log)
+	return ctx.plugin.vm.onHttpResponseBody(ctx.contextID, *ctx.config, body, ctx.plugin.vm.log)
 }
