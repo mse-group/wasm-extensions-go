@@ -111,11 +111,11 @@ func HttpCall(cluster Cluster, method, path string, headers [][2]string, body []
 			}
 			headers.Add(h[0], h[1])
 		}
-		proxywasm.LogDebugf("http call end, id: %s, code: %d, normal: %t, headers: %v, body: %s",
-			requestID, code, normalResponse, respHeaders, respBody)
+		proxywasm.LogDebugf("http call end, id: %s, code: %d, normal: %t, body: %s",
+			requestID, code, normalResponse, respBody)
 		callback(code, headers, respBody)
 	})
-	proxywasm.LogDebugf("http call start, id: %s, cluster: %+v, method: %s, path: %s, headers: %v, body: %s, timeout: %d",
-		requestID, cluster, method, path, headers, body, timeout)
+	proxywasm.LogDebugf("http call start, id: %s, cluster: %+v, method: %s, path: %s, body: %s, timeout: %d",
+		requestID, cluster, method, path, body, timeout)
 	return err
 }
